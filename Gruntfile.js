@@ -1,14 +1,18 @@
 'use strict';
 
+const process = require('process');
+const fs = require('fs');
+const qunit = require('qunit');
+const UglifyJS = require('uglify-js');
+//const { path: phantomJsPath } = require('phantomjs-prebuilt');
+
 function qunitVersion() {
-  var prepareStackTrace = Error.prepareStackTrace;
-  Error.prepareStackTrace = function() {
-    return '';
-  };
+  const { prepareStackTrace } = Error;
+  Error.prepareStackTrace = () => '';
+
   try {
-    return require('qunit').version;
-  }
-  finally {
+    return qunit.version;
+  } finally {
     Error.prepareStackTrace = prepareStackTrace;
   }
 }
@@ -30,21 +34,20 @@ module.exports = function(grunt) {
       src: {
         options: {
           banner: '<%= banner %>',
-          preBundleCB: function() {
-            var fs = require('fs');
-            var UglifyJS = require('uglify-js');
-            var files = {};
-            UglifyJS.FILES.forEach(function(file) {
+          preBundleCB() {
+            const files = {};
+            for (const file of UglifyJS.FILES) {
               files[file] = fs.readFileSync(file, 'utf8');
-            });
+            }
+
             fs.writeFileSync('./dist/uglify.js', UglifyJS.minify(files, {
               compress: false,
               mangle: false,
               wrap: 'exports'
             }).code);
           },
-          postBundleCB: function(err, src, next) {
-            require('fs').unlinkSync('./dist/uglify.js');
+          postBundleCB(err, src, next) {
+            fs.unlinkSync('./dist/uglify.js');
             next(err, src);
           },
           require: [
@@ -54,24 +57,6 @@ module.exports = function(grunt) {
         },
         src: 'src/htmlminifier.js',
         dest: 'dist/htmlminifier.js'
-      }
-    },
-
-    eslint: {
-      grunt: {
-        src: 'Gruntfile.js'
-      },
-      src: {
-        src: ['cli.js', 'src/**/*.js']
-      },
-      tests: {
-        src: ['tests/*.js', 'test.js']
-      },
-      web: {
-        src: ['assets/master.js', 'assets/worker.js']
-      },
-      other: {
-        src: ['backtest.js', 'benchmark.js']
       }
     },
 
@@ -108,49 +93,51 @@ module.exports = function(grunt) {
 
   grunt.loadNpmTasks('grunt-browserify');
   grunt.loadNpmTasks('grunt-contrib-uglify');
-  grunt.loadNpmTasks('grunt-eslint');
 
   function report(type, details) {
     grunt.log.writeln(type + ' completed in ' + details.runtime + 'ms');
-    details.failures.forEach(function(details) {
+    for (const detail of details.failures) {
       grunt.log.error();
-      grunt.log.error(details.name + (details.message ? ' [' + details.message + ']' : ''));
-      grunt.log.error(details.source);
+      grunt.log.error(detail.name + (detail.message ? ' [' + detail.message + ']' : ''));
+      grunt.log.error(detail.source);
       grunt.log.error('Actual:');
-      grunt.log.error(details.actual);
+      grunt.log.error(detail.actual);
       grunt.log.error('Expected:');
-      grunt.log.error(details.expected);
-    });
-    grunt.log[details.failed ? 'error' : 'ok'](details.passed + ' of ' + details.total + ' passed, ' + details.failed + ' failed');
+      grunt.log.error(detail.expected);
+    }
+
+    grunt.log[details.failed ? 'error' : 'ok'](
+      details.passed + ' of ' + details.total + ' passed, ' + details.failed + ' failed'
+    );
     return details.failed;
   }
 
-  var phantomjs = require('phantomjs-prebuilt').path;
   grunt.registerMultiTask('qunit', function() {
-    var done = this.async();
-    var errors = [];
+    const done = this.async();
+    const errors = [];
 
     function run(testType, binPath, testPath) {
       grunt.util.spawn({
         cmd: binPath,
         args: ['test.js', testPath]
-      }, function(error, result) {
+      }, (error, result) => {
         if (error) {
           grunt.log.error(result.stderr);
           grunt.log.error(testType + ' test failed to load');
           errors.push(-1);
-        }
-        else {
-          var output = result.stdout;
-          var index = output.lastIndexOf('\n');
+        } else {
+          let output = result.stdout;
+          const index = output.lastIndexOf('\n');
           if (index !== -1) {
             // There's something before the report JSON
             // Log it to the console -- it's probably some debug output:
             console.log(output.slice(0, index));
             output = output.slice(index);
           }
+
           errors.push(report(testType, JSON.parse(output)));
         }
+
         if (errors.length === 2) {
           done(!errors[0] && !errors[1]);
         }
@@ -158,14 +145,13 @@ module.exports = function(grunt) {
     }
 
     run('node', process.argv[0], this.data[0]);
-    run('web', phantomjs, this.data[1]);
+    //run('web', phantomJsPath, this.data[1]);
   });
 
   grunt.registerMultiTask('replace', function() {
-    var pattern = this.data[0];
-    var path = this.target;
-    var html = grunt.file.read(path);
-    html = html.replace(pattern, this.data[1]);
+    const pattern = this.data[0];
+    const path = this.target;
+    const html = grunt.file.read(path).replace(pattern, this.data[1]);
     grunt.file.write(path, html);
   });
 
@@ -176,7 +162,6 @@ module.exports = function(grunt) {
   ]);
 
   grunt.registerTask('test', [
-    'eslint',
     'dist',
     'qunit'
   ]);
